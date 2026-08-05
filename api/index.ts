@@ -33,7 +33,16 @@ async function bootstrapServer() {
       .build();
 
     const document = SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup('api', app, document);
+
+    // Use CDN URLs for Swagger UI assets so Vercel Serverless can load CSS/JS without 404
+    SwaggerModule.setup('api', app, document, {
+      customCssUrl:
+        'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/4.15.5/swagger-ui.min.css',
+      customJs: [
+        'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/4.15.5/swagger-ui-bundle.min.js',
+        'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/4.15.5/swagger-ui-standalone-preset.min.js',
+      ],
+    });
 
     await app.init();
     isInitialized = true;
