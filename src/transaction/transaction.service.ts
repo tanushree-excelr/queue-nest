@@ -87,10 +87,21 @@ export class TransactionService {
 
   /**
    * Retrieves transaction job details and processing state by jobId.
+   * Handles prefixed IDs (job-123), raw numeric IDs (123), and database fallbacks seamlessly.
    */
   async getTransactionStatus(jobId: string) {
+    const rawId = String(jobId).replace(/^job-/, '');
+
+    // 1. Try querying BullMQ queue with multiple ID variations
     try {
-      const job = await this.transactionQueue.getJob(jobId);
+      let job = await this.transactionQueue.getJob(jobId);
+      if (!job && rawId !== jobId) {
+        job = await this.transactionQueue.getJob(rawId);
+      }
+      if (!job) {
+        job = await this.transactionQueue.getJob(`job-${rawId}`);
+      }
+
       if (job) {
         const state = await job.getState();
         return {
@@ -107,19 +118,26 @@ export class TransactionService {
       this.logger.warn(`BullMQ query skipped: ${error.message}`);
     }
 
-    // Fallback: Query database records
+    // 2. Query database records by matching numeric ID, nonce, or latest record
     const dbRecords = await this.nonceService.getAllNonces();
-    const latestRecord = dbRecords[0];
+    const numericId = parseInt(rawId, 10);
+    let matchedRecord = !isNaN(numericId)
+      ? dbRecords.find((r) => r.id === numericId || r.nonce === numericId)
+      : null;
 
-    if (latestRecord) {
+    if (!matchedRecord) {
+      matchedRecord = dbRecords[0];
+    }
+
+    if (matchedRecord) {
       return {
-        jobId,
-        state: latestRecord.status.toLowerCase(),
-        walletAddress: latestRecord.walletAddress,
-        assignedNonce: latestRecord.nonce,
-        status: latestRecord.status,
-        transactionHash: latestRecord.transactionHash,
-        createdAt: latestRecord.createdAt,
+        jobId: jobId,
+        state: matchedRecord.status.toLowerCase(),
+        walletAddress: matchedRecord.walletAddress,
+        assignedNonce: matchedRecord.nonce,
+        status: matchedRecord.status,
+        transactionHash: matchedRecord.transactionHash,
+        createdAt: matchedRecord.createdAt,
       };
     }
 
@@ -131,47 +149,45 @@ export class TransactionService {
   }
 
   /**
-   * Retrieves high-level queue metrics.
+   * Retrieves high-level queue metrics with graceful Redis error fallbacks.
    */
   async getQueueStatus() {
     const dbRecords = await this.nonceService.getAllNonces();
+    let waiting = 0;
+    let active = 0;
+    let completed = dbRecords.length;
+    let failed = 0;
+    let delayed = 0;
 
     try {
-      const [waiting, active, completed, failed, delayed] = await Promise.all([
-        this.transactionQueue.getWaitingCount(),
-        this.transactionQueue.getActiveCount(),
-        this.transactionQueue.getCompletedCount(),
-        this.transactionQueue.getFailedCount(),
-        this.transactionQueue.getDelayedCount(),
+      const counts = await Promise.all([
+        this.transactionQueue.getWaitingCount().catch(() => 0),
+        this.transactionQueue.getActiveCount().catch(() => 0),
+        this.transactionQueue.getCompletedCount().catch(() => 0),
+        this.transactionQueue.getFailedCount().catch(() => 0),
+        this.transactionQueue.getDelayedCount().catch(() => 0),
       ]);
 
-      const totalCompleted = Math.max(completed, dbRecords.length);
-
-      return {
-        queueName: TRANSACTION_QUEUE_NAME,
-        status: 'ONLINE',
-        metrics: {
-          waiting,
-          active,
-          completed: totalCompleted,
-          failed,
-          delayed,
-          total: waiting + active + totalCompleted + failed + delayed,
-        },
-      };
+      waiting = counts[0];
+      active = counts[1];
+      completed = Math.max(counts[2], dbRecords.length);
+      failed = counts[3];
+      delayed = counts[4];
     } catch (error) {
-      return {
-        queueName: TRANSACTION_QUEUE_NAME,
-        status: 'ONLINE',
-        metrics: {
-          waiting: 0,
-          active: 0,
-          completed: dbRecords.length,
-          failed: 0,
-          delayed: 0,
-          total: dbRecords.length,
-        },
-      };
+      this.logger.warn(`Redis queue status check fallback: ${error.message}`);
     }
+
+    return {
+      queueName: TRANSACTION_QUEUE_NAME,
+      status: 'ONLINE',
+      metrics: {
+        waiting,
+        active,
+        completed,
+        failed,
+        delayed,
+        total: waiting + active + completed + failed + delayed,
+      },
+    };
   }
 }
