@@ -1,0 +1,5 @@
+{
+  "$schema": "https://json.nestjs.com/cli.schema.json",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "src"
+}
