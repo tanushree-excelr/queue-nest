@@ -5,13 +5,20 @@ import { TransactionProcessor } from './transaction.processor';
 import { NonceModule } from '../nonce/nonce.module';
 import { BlockchainModule } from '../blockchain/blockchain.module';
 
+const redisHost = process.env.REDIS_HOST || 'localhost';
+const redisPort = parseInt(process.env.REDIS_PORT || '6379', 10);
+const redisPassword = process.env.REDIS_PASSWORD || 'secret';
+
 @Module({
   imports: [
     BullModule.forRoot({
       connection: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379', 10),
-        password: process.env.REDIS_PASSWORD || 'secret',
+        host: redisHost,
+        port: redisPort,
+        password: redisPassword,
+        maxRetriesPerRequest: null,
+        enableOfflineQueue: false,
+        connectTimeout: 5000,
       },
     }),
     BullModule.registerQueue({
@@ -20,9 +27,9 @@ import { BlockchainModule } from '../blockchain/blockchain.module';
         attempts: 3,
         backoff: {
           type: 'exponential',
-          delay: 2000, // 2s, 4s, 8s backoff
+          delay: 2000,
         },
-        removeOnComplete: false, // Keep logs for query/monitoring APIs
+        removeOnComplete: false,
         removeOnFail: false,
       },
     }),
