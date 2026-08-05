@@ -1,7 +1,7 @@
 import { Controller, Post, Get, Body, Param } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiProperty, ApiPropertyOptional, ApiParam } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiProperty, ApiParam } from '@nestjs/swagger';
 import { TransactionService } from './transaction.service';
-import { IsString, IsNotEmpty, IsNumber, IsPositive, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, IsPositive } from 'class-validator';
 
 export class SendTransactionDto {
   @ApiProperty({
@@ -14,19 +14,11 @@ export class SendTransactionDto {
 
   @ApiProperty({
     description: 'Amount of tokens to transfer',
-    example: 100,
+    example: 0.001,
   })
   @IsNumber()
   @IsPositive()
   amount: number;
-
-  @ApiPropertyOptional({
-    description: 'ERC-20 Token Contract Address (optional). Leave empty if transferring native network currency.',
-    example: '0x1234567890abcdef1234567890abcdef12345678',
-  })
-  @IsOptional()
-  @IsString()
-  tokenAddress?: string;
 }
 
 @ApiTags('Transactions')
@@ -57,8 +49,8 @@ export class TransactionController {
 
   @Post('transaction/send')
   @ApiOperation({
-    summary: 'Send Native or ERC-20 Token Transfer',
-    description: 'Enqueues a real EVM token transfer transaction (Native or ERC-20) into BullMQ for asynchronous execution using the configured private key',
+    summary: 'Send Native Token Transfer',
+    description: 'Enqueues a real EVM token transfer transaction into BullMQ for asynchronous execution using the configured private key',
     operationId: 'sendTransaction',
   })
   @ApiResponse({

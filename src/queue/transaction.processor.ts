@@ -20,11 +20,11 @@ export class TransactionProcessor extends WorkerHost {
   }
 
   async process(job: Job<CreateTransactionJobDto>): Promise<any> {
-    const { toWallet, amount, tokenAddress } = job.data;
+    const { toWallet, amount } = job.data;
     const fromWallet = this.blockchainService.getWalletAddress();
 
     this.logger.log(
-      `[Queue Worker] Processing Job ID #${job.id} (Attempt ${job.attemptsMade + 1}) - Sending ${amount} ${tokenAddress ? 'ERC20 tokens' : 'Native tokens'} from ${fromWallet} to ${toWallet}`,
+      `[Queue Worker] Processing Job ID #${job.id} (Attempt ${job.attemptsMade + 1}) - Sending ${amount} tokens from ${fromWallet} to ${toWallet}`,
     );
 
     let reservedNonce;
@@ -38,7 +38,6 @@ export class TransactionProcessor extends WorkerHost {
         toWallet,
         amount,
         reservedNonce.nonce,
-        tokenAddress,
       );
 
       await this.nonceService.updateNonceStatus(
