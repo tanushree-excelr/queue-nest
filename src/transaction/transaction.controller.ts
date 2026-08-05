@@ -41,6 +41,7 @@ export class TransactionController {
       availableEndpoints: {
         swaggerDocs: 'GET /api',
         sendTransaction: 'POST /transaction/send',
+        getAllTransactions: 'GET /transaction/all',
         getTransactionStatus: 'GET /transaction/:id',
         getQueueStatus: 'GET /queue/status',
       },
@@ -65,6 +66,17 @@ export class TransactionController {
   })
   async sendTransaction(@Body() dto: SendTransactionDto) {
     return this.transactionService.addTransactionToQueue(dto);
+  }
+
+  @Get('transaction/all')
+  @ApiOperation({
+    summary: 'Get All Transactions & Nonces',
+    description: 'Retrieves all transaction history, nonces, and transaction hashes from the database',
+    operationId: 'getAllTransactions',
+  })
+  @ApiResponse({ status: 200, description: 'Returns all transaction records' })
+  async getAllTransactions() {
+    return this.transactionService.getAllTransactions();
   }
 
   @Get('transaction/:id')

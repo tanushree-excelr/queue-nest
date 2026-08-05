@@ -15,7 +15,6 @@ export class NonceService {
 
   /**
    * Atomically reserves the next unique nonce for a given wallet address.
-   * Compares the database's max reserved nonce with the live network nonce to ensure no collisions.
    */
   async reserveNextNonce(walletAddress: string, networkNonce: number = 0): Promise<NonceEntity> {
     const queryRunner = this.dataSource.createQueryRunner();
@@ -23,7 +22,6 @@ export class NonceService {
     await queryRunner.startTransaction();
 
     try {
-      // Find current max nonce reserved in database for this wallet
       const maxNonceResult = await queryRunner.manager
         .createQueryBuilder(NonceEntity, 'nonce')
         .select('MAX(nonce.nonce)', 'maxNonce')
@@ -31,8 +29,6 @@ export class NonceService {
         .getRawOne();
 
       const dbMaxNonce = maxNonceResult?.maxNonce != null ? Number(maxNonceResult.maxNonce) : -1;
-      
-      // Calculate next nonce: must be greater than both DB max nonce and live pending network nonce
       const nextNonce = Math.max(dbMaxNonce + 1, networkNonce);
 
       this.logger.log(
@@ -82,6 +78,15 @@ export class NonceService {
     );
 
     return updated;
+  }
+
+  /**
+   * Fetches all recorded nonces across all wallets, sorted by latest first.
+   */
+  async getAllNonces(): Promise<NonceEntity[]> {
+    return this.nonceRepository.find({
+      order: { id: 'DESC' },
+    });
   }
 
   /**
