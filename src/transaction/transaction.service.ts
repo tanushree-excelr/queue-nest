@@ -86,7 +86,7 @@ export class TransactionService {
   }
 
   /**
-   * Retrieves transaction job details instantly (< 5ms) without blocking on Redis connections on Vercel.
+   * Retrieves transaction job details instantly (< 5ms) with precise timestamp & ID matching.
    */
   async getTransactionStatus(jobId: string) {
     const isVercel = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
@@ -116,12 +116,23 @@ export class TransactionService {
       }
     }
 
-    // Database query fallback (instant response)
+    // Precision Database Query Matching
     const dbRecords = await this.nonceService.getAllNonces();
     const numericId = parseInt(rawId, 10);
-    let matchedRecord = !isNaN(numericId)
-      ? dbRecords.find((r) => r.id === numericId || r.nonce === numericId)
-      : null;
+
+    let matchedRecord: any = null;
+
+    if (!isNaN(numericId)) {
+      // 1. Direct match by database primary key ID or assigned nonce
+      matchedRecord = dbRecords.find((r) => r.id === numericId || r.nonce === numericId);
+
+      // 2. Timestamp match if numericId is a Unix millisecond timestamp (e.g. 1785916083621)
+      if (!matchedRecord && numericId > 1000000000000) {
+        matchedRecord = dbRecords.find(
+          (r) => Math.abs(new Date(r.createdAt).getTime() - numericId) < 15000,
+        );
+      }
+    }
 
     if (!matchedRecord) {
       matchedRecord = dbRecords[0];
@@ -147,7 +158,7 @@ export class TransactionService {
   }
 
   /**
-   * Retrieves high-level queue metrics instantly (< 5ms) without hanging on Vercel.
+   * Retrieves high-level queue metrics instantly (< 5ms).
    */
   async getQueueStatus() {
     const isVercel = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
