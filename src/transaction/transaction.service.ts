@@ -23,7 +23,8 @@ export class TransactionService {
   async addTransactionToQueue(
     dto: CreateTransactionJobDto,
   ): Promise<{ message: string; jobId: string }> {
-    const customJobId = `job-${Date.now()}`;
+    const randomSuffix = Math.random().toString(36).substring(2, 8);
+    const customJobId = `job-${Date.now()}-${randomSuffix}`;
 
     const job = await this.transactionQueue.add('send-token', dto, {
       jobId: customJobId,
