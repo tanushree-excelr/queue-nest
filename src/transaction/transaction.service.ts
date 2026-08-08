@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue, Job } from 'bullmq';
-import { randomUUID } from 'crypto';
 import { TRANSACTION_QUEUE_NAME, CreateTransactionJobDto } from '../queue/transaction.queue';
 import { NonceService } from '../nonce/nonce.service';
 import { NonceStatus } from '../nonce/nonce.entity';
@@ -20,38 +19,34 @@ export class TransactionService {
 
   /**
    * Adds a transaction job to the BullMQ queue and returns immediately.
+   * BullMQ auto-assigns a sequential integer job ID (1, 2, 3...).
+   * The DB record is created using that BullMQ job.id so all three align:
+   *   BullMQ job.id == DB jobId == API response jobId
    */
   async addTransactionToQueue(
     dto: CreateTransactionJobDto,
   ): Promise<{ message: string; jobId: string }> {
-    const customJobId = `job-${Date.now()}-${randomUUID()}`;
     const fromWallet = this.blockchainService.getWalletAddress();
 
-    this.logger.log(`[API] Creating job: ${customJobId}`);
-
-    // Record initial waiting state in DB
-    await this.nonceService
-      .recordTransaction(
-        customJobId,
-        fromWallet,
-        dto.toWallet,
-        dto.amount,
-        null,
-        NonceStatus.PENDING,
-      )
-      .catch(() => null);
-
     try {
-      const addPromise = this.transactionQueue.add('send-token', dto, {
-        jobId: customJobId,
-      });
+      // Let BullMQ auto-assign the job ID (sequential: "1", "2", "3"...)
+      const job = await this.transactionQueue.add('send-token', dto);
+      const jobId = String(job.id);
 
-      const timeoutPromise = new Promise<{ id: string }>((_, reject) =>
-        setTimeout(() => reject(new Error('Redis connection timeout')), 2000),
-      );
+      this.logger.log(`[API] Creating job: ${jobId}`);
 
-      const job = await Promise.race([addPromise, timeoutPromise]);
-      const jobId = String(job?.id || customJobId);
+      // Create DB record AFTER receiving BullMQ job.id so they always match
+      await this.nonceService
+        .recordTransaction(
+          jobId,
+          fromWallet,
+          dto.toWallet,
+          dto.amount,
+          null,
+          NonceStatus.PENDING,
+        )
+        .catch(() => null);
+
       this.logger.log(`[API] Job added to BullMQ: ${jobId}`);
 
       return {
@@ -59,11 +54,8 @@ export class TransactionService {
         jobId,
       };
     } catch (err) {
-      this.logger.warn(`BullMQ queue add info: ${err.message}`);
-      return {
-        message: 'Transaction added to queue',
-        jobId: customJobId,
-      };
+      this.logger.error(`[API] Failed to add job to BullMQ: ${err.message}`);
+      throw new Error(`Failed to enqueue transaction: ${err.message}`);
     }
   }
 
