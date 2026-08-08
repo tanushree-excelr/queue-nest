@@ -30,9 +30,15 @@ export class TransactionService {
 
     try {
       // Let BullMQ auto-assign the job ID (sequential: "1", "2", "3"...)
-      const job = await this.transactionQueue.add('send-token', dto);
-      const jobId = String(job.id);
+      // Wrap in timeout so POST never hangs if Redis is slow
+      const job = await Promise.race([
+        this.transactionQueue.add('send-token', dto),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Redis timeout — queue unavailable')), 3000),
+        ),
+      ]);
 
+      const jobId = String(job.id);
       this.logger.log(`[API] Creating job: ${jobId}`);
 
       // Create DB record AFTER receiving BullMQ job.id so they always match
