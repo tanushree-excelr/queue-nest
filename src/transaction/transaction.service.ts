@@ -83,6 +83,8 @@ export class TransactionService {
             jobId: job.id,
             state,
             data: job.data,
+            assignedNonce: job.returnvalue?.nonce ?? null,
+            transactionHash: job.returnvalue?.transactionHash ?? null,
             returnvalue: state === 'completed' ? job.returnvalue : null,
             failedReason: state === 'failed' ? job.failedReason : null,
             attemptsMade: job.attemptsMade,
@@ -130,8 +132,9 @@ export class TransactionService {
 
     return {
       jobId,
-      state: 'completed',
-      message: 'Transaction processed',
+      state: 'waiting',
+      assignedNonce: null,
+      message: 'Transaction enqueued in BullMQ queue. Awaiting worker processing and provider nonce assignment.',
     };
   }
 
