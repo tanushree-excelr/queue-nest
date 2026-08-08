@@ -13,25 +13,38 @@ export class NonceService {
   ) {}
 
   /**
-   * Records a completed or failed transaction result without calculating nonces.
+   * Records or updates a transaction result with its provider-assigned nonce.
    */
   async recordTransaction(
+    jobId: string,
     walletAddress: string,
+    toWallet: string,
+    amount: number,
     nonce: number | null,
     status: NonceStatus,
     transactionHash?: string,
   ): Promise<NonceEntity> {
     try {
-      const record = this.nonceRepository.create({
-        walletAddress,
-        nonce: nonce ?? undefined,
-        status,
-        transactionHash,
-      });
+      let record = await this.nonceRepository.findOne({ where: { jobId } });
+      if (record) {
+        record.status = status;
+        if (nonce !== null && nonce !== undefined) record.nonce = nonce;
+        if (transactionHash) record.transactionHash = transactionHash;
+      } else {
+        record = this.nonceRepository.create({
+          jobId,
+          walletAddress,
+          toWallet,
+          amount,
+          nonce: nonce ?? undefined,
+          status,
+          transactionHash,
+        });
+      }
 
       const saved = await this.nonceRepository.save(record);
       this.logger.log(
-        `Recorded transaction for wallet ${walletAddress} (Nonce: ${nonce ?? 'N/A'}, status: ${status}, txHash: ${transactionHash || 'N/A'})`,
+        `Recorded transaction ${jobId} for wallet ${walletAddress} (Nonce: ${nonce ?? 'N/A'}, status: ${status}, txHash: ${transactionHash || 'N/A'})`,
       );
       return saved;
     } catch (error) {
@@ -41,29 +54,10 @@ export class NonceService {
   }
 
   /**
-   * Updates status and optional transactionHash for a reserved nonce record.
+   * Finds a recorded transaction by BullMQ jobId.
    */
-  async updateNonceStatus(
-    id: number,
-    status: NonceStatus,
-    transactionHash?: string,
-  ): Promise<NonceEntity> {
-    const nonceRecord = await this.nonceRepository.findOne({ where: { id } });
-    if (!nonceRecord) {
-      throw new Error(`Nonce record with ID ${id} not found.`);
-    }
-
-    nonceRecord.status = status;
-    if (transactionHash) {
-      nonceRecord.transactionHash = transactionHash;
-    }
-
-    const updated = await this.nonceRepository.save(nonceRecord);
-    this.logger.log(
-      `Updated nonce #${updated.nonce} for wallet ${updated.walletAddress} to status: ${status} (txHash: ${transactionHash || 'N/A'})`,
-    );
-
-    return updated;
+  async findByJobId(jobId: string): Promise<NonceEntity | null> {
+    return this.nonceRepository.findOne({ where: { jobId } });
   }
 
   /**

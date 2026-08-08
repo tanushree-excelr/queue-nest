@@ -11,9 +11,19 @@ export class NonceEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
+  @Column({ nullable: true })
+  @Index()
+  jobId: string;
+
   @Column()
   @Index()
   walletAddress: string;
+
+  @Column({ nullable: true })
+  toWallet: string;
+
+  @Column({ type: 'float', nullable: true })
+  amount: number;
 
   @Column({ type: 'integer', nullable: true })
   nonce: number;

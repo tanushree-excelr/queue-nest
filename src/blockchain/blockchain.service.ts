@@ -44,13 +44,12 @@ export class BlockchainService implements OnModuleInit {
     return this.wallet.address;
   }
 
-  async getNetworkNonce(address: string): Promise<number> {
+  async getPendingNonce(address: string): Promise<number> {
     try {
       const count = await this.provider.getTransactionCount(address, 'pending');
-      this.logger.log(`[Blockchain Service] Live network pending nonce for ${address}: ${count}`);
       return count;
     } catch (error) {
-      this.logger.warn(`[Blockchain Service] Could not fetch network nonce: ${error.message}. Defaulting to 0.`);
+      this.logger.warn(`Could not fetch pending nonce from provider: ${error.message}. Defaulting to 0.`);
       return 0;
     }
   }
@@ -58,32 +57,29 @@ export class BlockchainService implements OnModuleInit {
   async sendTransaction(
     toWallet: string,
     amount: number,
-    jobId?: string,
+    nonce: number,
   ): Promise<TransactionResult> {
     if (!isAddress(toWallet)) {
       throw new Error(`Invalid recipient EVM wallet address: ${toWallet}`);
     }
 
     const fromAddress = this.getWalletAddress();
-    const jobLabel = jobId ? ` ${jobId}` : '';
-    this.logger.log(`[BLOCKCHAIN] Sending${jobLabel}`);
 
     try {
       const feeData: any = await this.provider.getFeeData().catch(() => ({}));
       const txPayload: any = {
         to: toWallet,
         value: parseEther(amount.toString()),
+        nonce,
       };
 
       if (feeData && feeData.gasPrice) txPayload.gasPrice = feeData.gasPrice;
 
       const txResponse = await this.wallet.sendTransaction(txPayload);
 
-      this.logger.log(`[BLOCKCHAIN]${jobLabel} submitted: ${txResponse.hash}`);
-
       return {
         transactionHash: txResponse.hash,
-        nonce: txResponse.nonce,
+        nonce,
         status: 'SUCCESS',
         fromWallet: fromAddress,
         toWallet,
@@ -92,7 +88,7 @@ export class BlockchainService implements OnModuleInit {
       };
     } catch (error) {
       this.logger.error(
-        `[BLOCKCHAIN] Failed sending transaction${jobLabel}: ${error.message}`,
+        `Failed sending transaction with provider nonce ${nonce}: ${error.message}`,
         error.stack,
       );
       throw error;

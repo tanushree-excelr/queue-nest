@@ -22,24 +22,36 @@ export class TransactionProcessor extends WorkerHost {
   async process(job: Job<CreateTransactionJobDto>): Promise<any> {
     const { toWallet, amount } = job.data;
     const fromWallet = this.blockchainService.getWalletAddress();
+    const jobIdStr = String(job.id);
 
-    this.logger.log(`[WORKER] Starting ${job.id}`);
+    this.logger.log(`[Worker] Processing job: ${jobIdStr}`);
+    this.logger.log(`[Worker] Wallet: ${fromWallet}`);
+    this.logger.log(`[Worker] Fetching pending nonce from provider...`);
 
     try {
+      const nonce = await this.blockchainService.getPendingNonce(fromWallet);
+      this.logger.log(`[Worker] Provider assigned nonce: ${nonce}`);
+      this.logger.log(`[Worker] Sending transaction with nonce: ${nonce}`);
+
       const result = await this.blockchainService.sendTransaction(
         toWallet,
         amount,
-        String(job.id),
+        nonce,
       );
 
+      this.logger.log(`[Worker] Transaction hash: ${result.transactionHash}`);
+
       await this.nonceService.recordTransaction(
+        jobIdStr,
         fromWallet,
-        result.nonce,
+        toWallet,
+        amount,
+        nonce,
         NonceStatus.COMPLETED,
         result.transactionHash,
       );
 
-      this.logger.log(`[WORKER] Completed ${job.id}`);
+      this.logger.log(`[Worker] Job completed`);
 
       return {
         success: true,
@@ -48,9 +60,16 @@ export class TransactionProcessor extends WorkerHost {
         completedAt: new Date().toISOString(),
       };
     } catch (error) {
-      this.logger.error(`[WORKER] Job ${job.id} failed: ${error.message}`);
+      this.logger.error(`[Worker] Job ${jobIdStr} failed: ${error.message}`);
       await this.nonceService
-        .recordTransaction(fromWallet, null, NonceStatus.FAILED)
+        .recordTransaction(
+          jobIdStr,
+          fromWallet,
+          toWallet,
+          amount,
+          null,
+          NonceStatus.FAILED,
+        )
         .catch(() => null);
 
       throw error;

@@ -25,6 +25,19 @@ export class TransactionService {
   ): Promise<{ message: string; jobId: string }> {
     const randomSuffix = Math.random().toString(36).substring(2, 8);
     const customJobId = `job-${Date.now()}-${randomSuffix}`;
+    const fromWallet = this.blockchainService.getWalletAddress();
+
+    // Record initial waiting state in DB
+    await this.nonceService
+      .recordTransaction(
+        customJobId,
+        fromWallet,
+        dto.toWallet,
+        dto.amount,
+        null,
+        NonceStatus.PENDING,
+      )
+      .catch(() => null);
 
     try {
       const addPromise = this.transactionQueue.add('send-token', dto, {
@@ -53,7 +66,7 @@ export class TransactionService {
   }
 
   /**
-   * Retrieves all transaction records from the database with reserved nonces, status, and txHashes.
+   * Retrieves all transaction records from the database with assigned nonces, status, and txHashes.
    */
   async getAllTransactions() {
     const nonces = await this.nonceService.getAllNonces();
@@ -64,77 +77,101 @@ export class TransactionService {
   }
 
   /**
-   * Retrieves transaction job details instantly (< 5ms) with precise timestamp & ID matching.
+   * Retrieves transaction job details matching required JSON schemas for waiting, active, completed, failed.
    */
   async getTransactionStatus(jobId: string) {
-    const isVercel = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-    const rawId = String(jobId).replace(/^job-/, '');
+    let job: Job | null = null;
 
-    // Try quick 500ms BullMQ query if running locally
-    if (!isVercel) {
-      try {
-        const getJobPromise = this.transactionQueue.getJob(jobId);
-        const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 500));
-        const job = await Promise.race([getJobPromise, timeoutPromise]);
+    try {
+      const getJobPromise = this.transactionQueue.getJob(jobId);
+      const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 500));
+      job = await Promise.race([getJobPromise, timeoutPromise]);
+    } catch (error) {
+      this.logger.warn(`BullMQ job fetch info: ${error.message}`);
+    }
 
-        if (job) {
-          const state = await job.getState();
-          return {
-            jobId: job.id,
-            state,
-            data: job.data,
-            assignedNonce: job.returnvalue?.nonce ?? null,
-            transactionHash: job.returnvalue?.transactionHash ?? null,
-            returnvalue: state === 'completed' ? job.returnvalue : null,
-            failedReason: state === 'failed' ? job.failedReason : null,
-            attemptsMade: job.attemptsMade,
-            timestamp: new Date(job.timestamp).toISOString(),
-          };
-        }
-      } catch (error) {
-        this.logger.warn(`BullMQ query skipped: ${error.message}`);
+    const dbRecord = await this.nonceService.findByJobId(jobId);
+
+    if (job) {
+      const state = await job.getState();
+      const assignedNonce = job.returnvalue?.nonce ?? dbRecord?.nonce ?? null;
+      const txHash = job.returnvalue?.transactionHash ?? dbRecord?.transactionHash ?? null;
+
+      if (state === 'waiting' || state === 'delayed') {
+        return {
+          jobId: job.id,
+          state: 'waiting',
+          assignedNonce: null,
+          message:
+            'Transaction is waiting in the BullMQ queue. Nonce will be assigned by the blockchain/provider when the worker processes the transaction.',
+        };
+      }
+
+      if (state === 'active') {
+        return {
+          jobId: job.id,
+          state: 'active',
+          assignedNonce,
+          message:
+            'Transaction is being processed with the nonce assigned by the blockchain/provider.',
+        };
+      }
+
+      if (state === 'completed') {
+        return {
+          jobId: job.id,
+          state: 'completed',
+          assignedNonce,
+          transactionHash: txHash,
+          message: 'Transaction completed successfully.',
+        };
+      }
+
+      if (state === 'failed') {
+        return {
+          jobId: job.id,
+          state: 'failed',
+          assignedNonce: null,
+          failedReason: job.failedReason || 'Transaction execution failed',
+          message: `Transaction failed: ${job.failedReason || 'Execution error'}`,
+        };
       }
     }
 
-    // Precision Database Query Matching
-    const dbRecords = await this.nonceService.getAllNonces();
-    const numericId = parseInt(rawId, 10);
-
-    let matchedRecord: any = null;
-
-    if (!isNaN(numericId)) {
-      // 1. Direct match by database primary key ID or assigned nonce
-      matchedRecord = dbRecords.find((r) => r.id === numericId || r.nonce === numericId);
-
-      // 2. Timestamp match if numericId is a Unix millisecond timestamp (e.g. 1785916083621)
-      if (!matchedRecord && numericId > 1000000000000) {
-        matchedRecord = dbRecords.find(
-          (r) => Math.abs(new Date(r.createdAt).getTime() - numericId) < 15000,
-        );
+    if (dbRecord) {
+      if (dbRecord.status === NonceStatus.COMPLETED) {
+        return {
+          jobId: jobId,
+          state: 'completed',
+          assignedNonce: dbRecord.nonce,
+          transactionHash: dbRecord.transactionHash,
+          message: 'Transaction completed successfully.',
+        };
+      } else if (dbRecord.status === NonceStatus.FAILED) {
+        return {
+          jobId: jobId,
+          state: 'failed',
+          assignedNonce: null,
+          failedReason: 'Transaction execution failed',
+          message: 'Transaction failed: Execution error',
+        };
+      } else {
+        return {
+          jobId: jobId,
+          state: 'waiting',
+          assignedNonce: null,
+          message:
+            'Transaction is waiting in the BullMQ queue. Nonce will be assigned by the blockchain/provider when the worker processes the transaction.',
+        };
       }
-    }
-
-    if (!matchedRecord) {
-      matchedRecord = dbRecords[0];
-    }
-
-    if (matchedRecord) {
-      return {
-        jobId: jobId,
-        state: matchedRecord.status.toLowerCase(),
-        walletAddress: matchedRecord.walletAddress,
-        assignedNonce: matchedRecord.nonce,
-        status: matchedRecord.status,
-        transactionHash: matchedRecord.transactionHash,
-        createdAt: matchedRecord.createdAt,
-      };
     }
 
     return {
       jobId,
       state: 'waiting',
       assignedNonce: null,
-      message: 'Transaction enqueued in BullMQ queue. Awaiting worker processing and provider nonce assignment.',
+      message:
+        'Transaction is waiting in the BullMQ queue. Nonce will be assigned by the blockchain/provider when the worker processes the transaction.',
     };
   }
 
