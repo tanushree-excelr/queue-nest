@@ -26,41 +26,41 @@ export class TransactionService {
   async addTransactionToQueue(
     dto: CreateTransactionJobDto,
   ): Promise<{ message: string; jobId: string }> {
-    const fromWallet = this.blockchainService.getWalletAddress();
+    // Validate wallet is configured before touching the queue
+    let fromWallet: string;
+    try {
+      fromWallet = this.blockchainService.getWalletAddress();
+    } catch (err) {
+      this.logger.error(`[API] Wallet not initialized — check PRIVATE_KEY env var: ${err.message}`);
+      throw new Error('Wallet not initialized. Set PRIVATE_KEY in environment variables.');
+    }
 
     try {
-      // Let BullMQ auto-assign the job ID (sequential: "1", "2", "3"...)
-      // Wrap in timeout so POST never hangs if Redis is slow
+      this.logger.log(`[API] Transaction enqueue started for wallet: ${fromWallet}`);
+
+      // Let BullMQ auto-assign the sequential job ID ("1", "2", "3"...)
+      // Timeout so POST never hangs if Redis is slow or unreachable
       const job = await Promise.race([
         this.transactionQueue.add('send-token', dto),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Redis timeout — queue unavailable')), 3000),
+          setTimeout(() => reject(new Error('Redis timeout — queue unavailable after 3s')), 3000),
         ),
       ]);
 
       const jobId = String(job.id);
-      this.logger.log(`[API] Creating job: ${jobId}`);
-
-      // Create DB record AFTER receiving BullMQ job.id so they always match
-      await this.nonceService
-        .recordTransaction(
-          jobId,
-          fromWallet,
-          dto.toWallet,
-          dto.amount,
-          null,
-          NonceStatus.PENDING,
-        )
-        .catch(() => null);
-
       this.logger.log(`[API] Job added to BullMQ: ${jobId}`);
+
+      // NOTE: DB record is intentionally NOT written here.
+      // The worker owns all DB writes to avoid race conditions where
+      // the worker picks up the job and writes PROCESSING before the
+      // API finishes writing PENDING, which caused duplicate rows.
 
       return {
         message: 'Transaction added to queue',
         jobId,
       };
     } catch (err) {
-      this.logger.error(`[API] Failed to add job to BullMQ: ${err.message}`);
+      this.logger.error(`[API] Failed to enqueue transaction: ${err.message}`);
       throw new Error(`Failed to enqueue transaction: ${err.message}`);
     }
   }

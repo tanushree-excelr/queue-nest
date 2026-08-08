@@ -61,6 +61,35 @@ export class NonceService {
   }
 
   /**
+   * Creates a PENDING record only if one does not already exist for this jobId.
+   * This prevents the API's initial DB write from overwriting the worker's PROCESSING write
+   * when the worker picks up the job before the API has finished writing.
+   */
+  async createPendingIfAbsent(
+    jobId: string,
+    walletAddress: string,
+    toWallet: string,
+    amount: number,
+  ): Promise<NonceEntity> {
+    const existing = await this.nonceRepository.findOne({ where: { jobId } });
+    if (existing) {
+      this.logger.log(`[API] DB record for job ${jobId} already exists (status: ${existing.status}) — skipping PENDING write`);
+      return existing;
+    }
+    const record = this.nonceRepository.create({
+      jobId,
+      walletAddress,
+      toWallet,
+      amount,
+      nonce: undefined,
+      status: NonceStatus.PENDING,
+    });
+    const saved = await this.nonceRepository.save(record);
+    this.logger.log(`[API] DB record created for job ${jobId} (status: PENDING)`);
+    return saved;
+  }
+
+  /**
    * Fetches all recorded nonces across all wallets, sorted by latest first.
    */
   async getAllNonces(): Promise<NonceEntity[]> {
