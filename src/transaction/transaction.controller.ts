@@ -35,7 +35,7 @@ export class TransactionController {
   @ApiResponse({ status: 200, description: 'Server is online and healthy' })
   getRootInfo() {
     return {
-      message: 'BullMQ + Nonce Management NestJS Backend is running!',
+      message: 'BullMQ Serialized Blockchain Transaction Backend is running!',
       status: 'ONLINE',
       swaggerUi: 'http://localhost:3000/api',
       availableEndpoints: {
@@ -51,7 +51,7 @@ export class TransactionController {
   @Post('transaction/send')
   @ApiOperation({
     summary: 'Send Native Token Transfer',
-    description: 'Enqueues a real EVM token transfer transaction into BullMQ for asynchronous execution using the configured private key',
+    description: 'Enqueues an EVM token transfer into BullMQ for serialized asynchronous execution using provider nonces',
     operationId: 'sendTransaction',
   })
   @ApiResponse({
@@ -60,7 +60,7 @@ export class TransactionController {
     schema: {
       example: {
         message: 'Transaction added to queue',
-        jobId: '1',
+        jobId: 'job-1785914813252',
       },
     },
   })

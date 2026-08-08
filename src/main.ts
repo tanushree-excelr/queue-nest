@@ -16,9 +16,9 @@ async function bootstrap() {
   );
 
   const config = new DocumentBuilder()
-    .setTitle('BullMQ Nonce Transaction API')
+    .setTitle('BullMQ Serialized Transaction API')
     .setDescription(
-      'Asynchronous blockchain transaction execution using BullMQ queue and atomic nonce management.',
+      'Asynchronous EVM blockchain transaction execution using BullMQ serialized queue and provider nonces.',
     )
     .setVersion('1.0')
     .addTag('Transactions', 'Blockchain token transfer & queue monitoring endpoints')

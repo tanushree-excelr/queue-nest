@@ -7,7 +7,6 @@ export enum NonceStatus {
 }
 
 @Entity('nonces')
-@Index(['walletAddress', 'nonce'], { unique: true })
 export class NonceEntity {
   @PrimaryGeneratedColumn()
   id: number;
@@ -16,7 +15,7 @@ export class NonceEntity {
   @Index()
   walletAddress: string;
 
-  @Column({ type: 'integer' })
+  @Column({ type: 'integer', nullable: true })
   nonce: number;
 
   @Column({

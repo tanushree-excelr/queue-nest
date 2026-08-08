@@ -58,36 +58,32 @@ export class BlockchainService implements OnModuleInit {
   async sendTransaction(
     toWallet: string,
     amount: number,
-    nonce: number,
+    jobId?: string,
   ): Promise<TransactionResult> {
     if (!isAddress(toWallet)) {
       throw new Error(`Invalid recipient EVM wallet address: ${toWallet}`);
     }
 
     const fromAddress = this.getWalletAddress();
-    this.logger.log(
-      `[Blockchain Broadcast] Broadcasting tx: Sending ${amount} tokens from ${fromAddress} to ${toWallet} with Nonce: ${nonce}`,
-    );
+    const jobLabel = jobId ? ` ${jobId}` : '';
+    this.logger.log(`[BLOCKCHAIN] Sending${jobLabel}`);
 
     try {
       const feeData: any = await this.provider.getFeeData().catch(() => ({}));
       const txPayload: any = {
         to: toWallet,
         value: parseEther(amount.toString()),
-        nonce: nonce,
       };
 
       if (feeData && feeData.gasPrice) txPayload.gasPrice = feeData.gasPrice;
 
       const txResponse = await this.wallet.sendTransaction(txPayload);
 
-      this.logger.log(
-        `[Blockchain Broadcast Success] Transaction broadcasted! Tx Hash: ${txResponse.hash} | Reserved Nonce: ${nonce}`,
-      );
+      this.logger.log(`[BLOCKCHAIN]${jobLabel} submitted: ${txResponse.hash}`);
 
       return {
         transactionHash: txResponse.hash,
-        nonce,
+        nonce: txResponse.nonce,
         status: 'SUCCESS',
         fromWallet: fromAddress,
         toWallet,
@@ -96,7 +92,7 @@ export class BlockchainService implements OnModuleInit {
       };
     } catch (error) {
       this.logger.error(
-        `[Blockchain Broadcast Failed] Error sending transaction with nonce ${nonce}: ${error.message}`,
+        `[BLOCKCHAIN] Failed sending transaction${jobLabel}: ${error.message}`,
         error.stack,
       );
       throw error;

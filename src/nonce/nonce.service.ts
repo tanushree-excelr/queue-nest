@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository } from 'typeorm';
 import { NonceEntity, NonceStatus } from './nonce.entity';
 
 @Injectable()
@@ -10,47 +10,33 @@ export class NonceService {
   constructor(
     @InjectRepository(NonceEntity)
     private readonly nonceRepository: Repository<NonceEntity>,
-    private readonly dataSource: DataSource,
   ) {}
 
   /**
-   * Atomically reserves the next unique nonce for a given wallet address.
+   * Records a completed or failed transaction result without calculating nonces.
    */
-  async reserveNextNonce(walletAddress: string, networkNonce: number = 0): Promise<NonceEntity> {
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
+  async recordTransaction(
+    walletAddress: string,
+    nonce: number | null,
+    status: NonceStatus,
+    transactionHash?: string,
+  ): Promise<NonceEntity> {
     try {
-      const maxNonceResult = await queryRunner.manager
-        .createQueryBuilder(NonceEntity, 'nonce')
-        .select('MAX(nonce.nonce)', 'maxNonce')
-        .where('nonce.walletAddress = :walletAddress', { walletAddress })
-        .getRawOne();
-
-      const dbMaxNonce = maxNonceResult?.maxNonce != null ? Number(maxNonceResult.maxNonce) : -1;
-      const nextNonce = Math.max(dbMaxNonce + 1, networkNonce);
-
-      this.logger.log(
-        `Reserving nonce ${nextNonce} for wallet ${walletAddress} (DB Max: ${dbMaxNonce}, Network Nonce: ${networkNonce})`,
-      );
-
-      const newNonce = queryRunner.manager.create(NonceEntity, {
+      const record = this.nonceRepository.create({
         walletAddress,
-        nonce: nextNonce,
-        status: NonceStatus.PENDING,
+        nonce: nonce ?? undefined,
+        status,
+        transactionHash,
       });
 
-      const savedNonce = await queryRunner.manager.save(newNonce);
-      await queryRunner.commitTransaction();
-
-      return savedNonce;
+      const saved = await this.nonceRepository.save(record);
+      this.logger.log(
+        `Recorded transaction for wallet ${walletAddress} (Nonce: ${nonce ?? 'N/A'}, status: ${status}, txHash: ${transactionHash || 'N/A'})`,
+      );
+      return saved;
     } catch (error) {
-      await queryRunner.rollbackTransaction();
-      this.logger.error(`Failed to reserve nonce for wallet ${walletAddress}: ${error.message}`, error.stack);
+      this.logger.error(`Failed to record transaction for wallet ${walletAddress}: ${error.message}`);
       throw error;
-    } finally {
-      await queryRunner.release();
     }
   }
 
