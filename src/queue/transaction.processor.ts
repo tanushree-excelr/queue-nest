@@ -24,7 +24,8 @@ export class TransactionProcessor extends WorkerHost {
     const fromWallet = this.blockchainService.getWalletAddress();
     const jobIdStr = String(job.id);
 
-    this.logger.log(`[Worker] Received job: ${jobIdStr}`);
+    this.logger.log(`[Worker] Job received: ${jobIdStr}`);
+    this.logger.log(`[Worker] State: ACTIVE`);
     this.logger.log(`[Worker] Wallet: ${fromWallet}`);
 
     // Mark status as PROCESSING in DB
@@ -44,8 +45,18 @@ export class TransactionProcessor extends WorkerHost {
     try {
       const nonce = await this.blockchainService.getPendingNonce(fromWallet);
       this.logger.log(`[Worker] Provider returned nonce: ${nonce}`);
-      this.logger.log(`[Worker] Sending transaction with nonce: ${nonce}`);
 
+      await this.nonceService.recordTransaction(
+        jobIdStr,
+        fromWallet,
+        toWallet,
+        amount,
+        nonce,
+        NonceStatus.NONCE_ASSIGNED,
+      );
+      this.logger.log(`[Worker] Database updated: nonce=${nonce}`);
+
+      this.logger.log(`[Worker] Sending transaction with nonce: ${nonce}`);
       const result = await this.blockchainService.sendTransaction(
         toWallet,
         amount,
@@ -60,11 +71,21 @@ export class TransactionProcessor extends WorkerHost {
         toWallet,
         amount,
         nonce,
+        NonceStatus.SUBMITTED,
+        result.transactionHash,
+      );
+      this.logger.log(`[Worker] Database updated: SUBMITTED`);
+
+      await this.nonceService.recordTransaction(
+        jobIdStr,
+        fromWallet,
+        toWallet,
+        amount,
+        nonce,
         NonceStatus.CONFIRMED,
         result.transactionHash,
       );
 
-      this.logger.log(`[Worker] Database updated for job: ${jobIdStr}`);
       this.logger.log(`[Worker] Job completed: ${jobIdStr}`);
 
       return {

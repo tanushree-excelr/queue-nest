@@ -27,6 +27,8 @@ export class TransactionService {
     const customJobId = `job-${Date.now()}-${randomUUID()}`;
     const fromWallet = this.blockchainService.getWalletAddress();
 
+    this.logger.log(`[API] Creating job: ${customJobId}`);
+
     // Record initial waiting state in DB
     await this.nonceService
       .recordTransaction(
@@ -50,7 +52,7 @@ export class TransactionService {
 
       const job = await Promise.race([addPromise, timeoutPromise]);
       const jobId = String(job?.id || customJobId);
-      this.logger.log(`[QUEUE] Job added: ${jobId}`);
+      this.logger.log(`[API] Job added to BullMQ: ${jobId}`);
 
       return {
         message: 'Transaction added to queue',
