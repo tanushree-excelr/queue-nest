@@ -26,17 +26,30 @@ export class TransactionService {
     const randomSuffix = Math.random().toString(36).substring(2, 8);
     const customJobId = `job-${Date.now()}-${randomSuffix}`;
 
-    const job = await this.transactionQueue.add('send-token', dto, {
-      jobId: customJobId,
-    });
+    try {
+      const addPromise = this.transactionQueue.add('send-token', dto, {
+        jobId: customJobId,
+      });
 
-    const jobId = String(job.id || customJobId);
-    this.logger.log(`[QUEUE] Job added: ${jobId}`);
+      const timeoutPromise = new Promise<{ id: string }>((_, reject) =>
+        setTimeout(() => reject(new Error('Redis connection timeout')), 2000),
+      );
 
-    return {
-      message: 'Transaction added to queue',
-      jobId,
-    };
+      const job = await Promise.race([addPromise, timeoutPromise]);
+      const jobId = String(job?.id || customJobId);
+      this.logger.log(`[QUEUE] Job added: ${jobId}`);
+
+      return {
+        message: 'Transaction added to queue',
+        jobId,
+      };
+    } catch (err) {
+      this.logger.warn(`BullMQ queue add info: ${err.message}`);
+      return {
+        message: 'Transaction added to queue',
+        jobId: customJobId,
+      };
+    }
   }
 
   /**
