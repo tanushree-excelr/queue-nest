@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue, Job } from 'bullmq';
+import { randomUUID } from 'crypto';
 import { TRANSACTION_QUEUE_NAME, CreateTransactionJobDto } from '../queue/transaction.queue';
 import { NonceService } from '../nonce/nonce.service';
 import { NonceStatus } from '../nonce/nonce.entity';
@@ -23,8 +24,7 @@ export class TransactionService {
   async addTransactionToQueue(
     dto: CreateTransactionJobDto,
   ): Promise<{ message: string; jobId: string }> {
-    const randomSuffix = Math.random().toString(36).substring(2, 8);
-    const customJobId = `job-${Date.now()}-${randomSuffix}`;
+    const customJobId = `job-${Date.now()}-${randomUUID()}`;
     const fromWallet = this.blockchainService.getWalletAddress();
 
     // Record initial waiting state in DB
@@ -102,6 +102,7 @@ export class TransactionService {
           jobId: job.id,
           state: 'waiting',
           assignedNonce: null,
+          databaseStatus: dbRecord?.status || 'PENDING',
           message:
             'Transaction is waiting in the BullMQ queue. Nonce will be assigned by the blockchain/provider when the worker processes the transaction.',
         };
@@ -112,6 +113,7 @@ export class TransactionService {
           jobId: job.id,
           state: 'active',
           assignedNonce,
+          databaseStatus: dbRecord?.status || 'PROCESSING',
           message:
             'Transaction is being processed with the nonce assigned by the blockchain/provider.',
         };
@@ -123,6 +125,7 @@ export class TransactionService {
           state: 'completed',
           assignedNonce,
           transactionHash: txHash,
+          databaseStatus: dbRecord?.status || 'CONFIRMED',
           message: 'Transaction completed successfully.',
         };
       }
@@ -132,6 +135,7 @@ export class TransactionService {
           jobId: job.id,
           state: 'failed',
           assignedNonce: null,
+          databaseStatus: dbRecord?.status || 'FAILED',
           failedReason: job.failedReason || 'Transaction execution failed',
           message: `Transaction failed: ${job.failedReason || 'Execution error'}`,
         };
@@ -139,12 +143,13 @@ export class TransactionService {
     }
 
     if (dbRecord) {
-      if (dbRecord.status === NonceStatus.COMPLETED) {
+      if (dbRecord.status === NonceStatus.CONFIRMED) {
         return {
           jobId: jobId,
           state: 'completed',
           assignedNonce: dbRecord.nonce,
           transactionHash: dbRecord.transactionHash,
+          databaseStatus: 'CONFIRMED',
           message: 'Transaction completed successfully.',
         };
       } else if (dbRecord.status === NonceStatus.FAILED) {
@@ -152,14 +157,25 @@ export class TransactionService {
           jobId: jobId,
           state: 'failed',
           assignedNonce: null,
+          databaseStatus: 'FAILED',
           failedReason: 'Transaction execution failed',
           message: 'Transaction failed: Execution error',
+        };
+      } else if (dbRecord.status === NonceStatus.PROCESSING) {
+        return {
+          jobId: jobId,
+          state: 'active',
+          assignedNonce: dbRecord.nonce ?? null,
+          databaseStatus: 'PROCESSING',
+          message:
+            'Transaction is being processed with the nonce assigned by the blockchain/provider.',
         };
       } else {
         return {
           jobId: jobId,
           state: 'waiting',
           assignedNonce: null,
+          databaseStatus: 'PENDING',
           message:
             'Transaction is waiting in the BullMQ queue. Nonce will be assigned by the blockchain/provider when the worker processes the transaction.',
         };
@@ -170,6 +186,7 @@ export class TransactionService {
       jobId,
       state: 'waiting',
       assignedNonce: null,
+      databaseStatus: 'PENDING',
       message:
         'Transaction is waiting in the BullMQ queue. Nonce will be assigned by the blockchain/provider when the worker processes the transaction.',
     };

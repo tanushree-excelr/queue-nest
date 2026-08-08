@@ -10,17 +10,32 @@ import * as path from 'path';
 
 const isVercel = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 const dbPath = isVercel ? path.join('/tmp', 'database.sqlite') : 'database.sqlite';
+const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    TypeOrmModule.forRoot({
-      type: 'sqlite',
-      database: dbPath,
-      entities: [NonceEntity],
-      synchronize: true,
+    TypeOrmModule.forRootAsync({
+      useFactory: () => {
+        if (databaseUrl) {
+          return {
+            type: 'postgres',
+            url: databaseUrl,
+            entities: [NonceEntity],
+            synchronize: true,
+            ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false },
+          };
+        }
+
+        return {
+          type: 'sqlite',
+          database: dbPath,
+          entities: [NonceEntity],
+          synchronize: true,
+        };
+      },
     }),
     NonceModule,
     BlockchainModule,

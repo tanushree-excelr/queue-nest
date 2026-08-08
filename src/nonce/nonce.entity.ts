@@ -2,7 +2,8 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 
 export enum NonceStatus {
   PENDING = 'PENDING',
-  COMPLETED = 'COMPLETED',
+  PROCESSING = 'PROCESSING',
+  CONFIRMED = 'CONFIRMED',
   FAILED = 'FAILED',
 }
 
